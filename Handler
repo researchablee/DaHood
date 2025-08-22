@@ -1,0 +1,464 @@
+function service(service: string)
+	return cloneref(game:GetService(service))
+end
+
+local OWNER = service("Players").LocalPlayer
+
+local Workspace = service("Workspace")
+local ReplicatedStorage = service("ReplicatedStorage")
+local TweenService = service("TweenService")
+local TextChatService = service("TextChatService")
+local MainEvent = ReplicatedStorage:WaitForChild("MainEvent")
+
+local Handler, Connections = {}, {}
+
+local Playing = nil
+
+function Handler:CloneRef(service: string): Instance
+    return cloneref(game:GetService(service))
+end
+
+function Handler:GetChar(v: Model)
+    return OWNER.Character:FindFirstChild(v.Name)
+end
+
+function Handler:Is_KO(v: Model)
+    if v.Character:FindFirstChild('BodyEffects') then
+        if v.Character.BodyEffects:FindFirstChild('K.O') then
+            return v.Character.BodyEffects['K.O']
+        end
+    end
+end
+
+function Handler:Is_Dead(v: Model)
+    if v.Character:FindFirstChild('BodyEffects') then
+        if v.Character.BodyEffects:FindFirstChild('SDeath') then
+            return v.Character.BodyEffects['SDeath']
+        end
+    end
+end
+
+function Handler:Is_Attacking(v: Model)
+    if v.Character:FindFirstChild('BodyEffects') then
+        if v.Character.BodyEffects:FindFirstChild('Attacking') then
+            return v.Character.BodyEffects['Attacking']
+        end
+    end
+end
+
+function Handler:Humanoid(v: Model)
+    if v.Character:FindFirstChildOfClass("Humanoid") then
+       return v.Character.Humanoid
+    end
+end
+
+function Handler:UpperTorso(v: Model)
+    if v.Character:FindFirstChild("UpperTorso") then
+       return v.Character.UpperTorso
+    end
+end
+
+function Handler:HumanoidRootPart(v: Model)
+    if v.Character:FindFirstChild("HumanoidRootPart") then
+       return v.Character.HumanoidRootPart
+    end
+end
+
+function Handler:ChangeState(Number: number)
+    pcall(function()
+        Handler:Humanoid(OWNER):ChangeState(Number)
+    end)
+end
+
+function Handler:GetAsset(Result: {[string]: string}): {[string]: Instance}
+    local results, preloadList = {}, {}
+
+    for name, key in pairs(Result) do
+        local asset = game:GetObjects("rbxassetid://" .. key)[1]
+        results[name] = asset:Clone()
+
+        table.insert(preloadList, asset)
+
+        for index, object in pairs(asset:GetDescendants()) do
+            table.insert(preloadList, object)
+        end
+
+        asset.Parent = nil
+		asset:PivotTo(CFrame.new(1e6, 1e6, 1e6))
+		asset.Parent = workspace
+		game:GetService("RunService").RenderStepped:Wait()
+		asset.Parent = nil
+    end
+
+    game:GetService("ContentProvider"):PreloadAsync(preloadList)
+
+    return results
+end
+
+function Handler:Get_Asset_By_Folder(Folder: string, Result: {[string]: string})
+    local results, preloadList = {}, {}
+
+    for name, key in pairs(Result) do
+        local asset = game:GetObjects(getcustomasset(Folder .. "/" .. key))[1]
+        local id = key:match("^(.-)%.rbxm$"):gsub(" ", "_")
+        results[id] = asset:Clone()
+
+        table.insert(preloadList, asset)
+
+        for self, object in pairs(asset:GetDescendants()) do
+            if object:IsA("ParticleEmitter") or
+               object:IsA("Trail") or
+               object:IsA("Beam") or
+               object:IsA("Fire") or
+               object:IsA("Smoke") or
+               object:IsA("Sparkles") or
+               object:IsA("PointLight") or
+               object:IsA("SurfaceLight") or
+               object:IsA("SpotLight") then
+                object.Enabled = true
+            end
+            table.insert(preloadList, object)
+        end
+
+        asset.Parent = nil
+        asset:PivotTo(CFrame.new(1e6, 1e6, 1e6))
+        asset.Parent = workspace
+        game:GetService("RunService").RenderStepped:Wait()
+        asset.Parent = nil
+    end
+
+    game:GetService("ContentProvider"):PreloadAsync(preloadList)
+    return results
+end
+
+function Handler:Get_Player(query: string): Player?
+	for index, player in pairs(game.Players:GetPlayers()) do
+		if player ~= OWNER and (
+			player.Name:lower():sub(1, #query) == query:lower() or
+			player.DisplayName:lower():sub(1, #query) == query:lower()
+		) then
+			return player
+		end
+	end
+	return nil
+end
+
+function Handler:Get_Mouse_Player(): Player?
+	local player, shortest = nil, math.huge
+	local players = game.Players:GetPlayers()
+	for index = 1, #players do
+		if players[index] ~= OWNER and (
+			players[index].Character and
+			players[index].Character:FindFirstChild("Humanoid") and 
+			players[index].Character.Humanoid.Health > 0 
+        ) then
+			local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(players[index].Character.Head.Position)
+			if onScreen then
+				local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(OWNER:GetMouse().X, OWNER:GetMouse().Y)).Magnitude
+				if distance < shortest then
+					player, shortest = players[index], distance
+				end
+			end
+		end
+	end
+	return player
+end
+
+function Handler:Connected(Name: string)
+	if typeof(Connections[Name]) == "RBXScriptConnection" then
+		return Connections[Name].Connected
+	elseif typeof(Connections[Name]) == "table" then
+		for i = 1, #Connections[Name] do
+			if typeof(Connections[Name][i]) == "RBXScriptConnection" and Connections[Name][i].Connected then
+				return true
+			end
+		end
+		return false
+	end
+end
+
+function Handler:Disconnect(Name: string | {string}, ToNil: boolean)
+	if typeof(Name) == "table" then
+		for i = 1, #Name do
+			self:Disconnect(Name[i], ToNil)
+		end
+		return
+	end
+
+	if typeof(Connections[Name]) == "RBXScriptConnection" then
+		if Connections[Name].Connected then
+			Connections[Name]:Disconnect()
+		end
+	elseif typeof(Connections[Name]) == "table" then
+		for i = 1, #Connections[Name] do
+			if typeof(Connections[Name][i]) == "RBXScriptConnection" and Connections[Name][i].Connected then
+				Connections[Name][i]:Disconnect()
+			end
+		end
+	end
+
+	if ToNil then
+		Connections[Name] = nil
+	end
+end
+
+function Handler:AddConnection(Name: string | table, Connection: RBXScriptConnection?)
+    if typeof(Connection) ~= "RBXScriptConnection" then 
+        return 
+    end
+    
+	if typeof(Name) == "string" then
+		if typeof(Connections[Name]) == "RBXScriptConnection" and Connections[Name].Connected then
+			Connections[Name]:Disconnect()
+		end
+		Connections[Name] = Connection
+	elseif typeof(Name) == "table" then
+		for i = 1, #Name do
+			if typeof(Name[i]) == "RBXScriptConnection" and Name[i].Connected then
+				Name[i]:Disconnect()
+			end
+		end
+		table.insert(Name, Connection)
+	end
+end
+
+function Handler:Unload()
+    for name, conn in pairs(Connections) do
+        if typeof(conn) == "RBXScriptConnection" and conn.Connected then
+            conn:Disconnect()
+        end
+        Connections[name] = nil
+    end
+end
+
+function Handler:Pairs(Table: { [any]: any }, Callback: (any) -> ())
+    for index, value in pairs(Table) do
+        Callback(value)
+    end
+end
+
+function Handler:Create(Type: string, Properties: { [string]: any }): Instance
+    if Properties.Name and (Properties.Parent or Workspace):FindFirstChild(Properties.Name) then
+    	(Properties.Parent or Workspace):FindFirstChild(Properties.Name):Destroy()
+    end
+
+    local NewInstance = Instance.new(Type)
+
+    for i, v in pairs(Properties) do
+        NewInstance[i] = v
+    end
+
+    return NewInstance
+end
+
+function Handler:Find_Item(Name: string, Type: boolean)
+	for i, v in pairs(Workspace.Ignored.Shop:GetChildren()) do
+		local n = v.Name:lower()
+		if Type and n:find("ammo") and n:find(Name:lower()) and v:FindFirstChild("Head") then
+			return v
+		elseif not Type and not n:find("ammo") and n:find(Name:lower()) and v:FindFirstChild("Head") then
+			return v
+		end
+	end
+end
+
+function Handler:Destroy(Name: Instance)
+	if Name then
+		Name:Destroy()
+	end
+end
+
+function Handler:RemoveAccessory(Character: Model, Accessory: Accessory)
+    for name, item in pairs(Character:GetChildren()) do
+        if item:IsA(Accessory) then
+            item:Destroy()
+        end
+    end
+end
+
+function Handler:Equip(Name: string)
+    if not OWNER.Character:FindFirstChild(Name) then
+        if OWNER.Backpack:FindFirstChild(Name) then
+            OWNER.Backpack:FindFirstChild(Name).Parent = OWNER.Character
+        end
+    end
+end
+
+function Handler:Hit(Value: boolean)
+    if not OWNER.Character:FindFirstChildWhichIsA("Tool") then return end
+    
+    if Value then
+        OWNER.Character:FindFirstChildWhichIsA("Tool"):Activate()
+    else
+        OWNER.Character:FindFirstChildWhichIsA("Tool"):Activate()
+        OWNER.Character:FindFirstChildWhichIsA("Tool"):Deactivate()
+    end
+end
+
+function Handler:PlaySound(ID: number, Vol: number)
+    local sound = Handler:Create("Sound",{SoundId = "rbxassetid://"..ID,Volume = Vol,Parent = Workspace})
+    sound:Play()
+    sound.Ended:Connect(function()
+        sound:Destroy()
+    end)
+    return sound
+end
+
+function Handler:StopSound(Sound: any)
+    if Sound and Sound.IsPlaying then
+        Sound:Stop()
+        Sound:Destroy()
+    end
+end
+
+function Handler:CanCollide(Character: Model, Value: boolean)
+    Handler:Pairs(Character:GetDescendants(), function(v)
+        if (v:IsA("Part") or v:IsA("BasePart") or v:IsA("MeshPart")) and v.CanCollide == true then
+            v.CanCollide = Value
+        end
+    end)
+end
+
+function Handler:ZeroVelocity(Character: Model)
+	Handler:Pairs(Character:GetDescendants(), function(Part)
+		if Part:IsA("BasePart") or Part:IsA("MeshPart") or Part:IsA("Part") then
+			if Part.Velocity ~= Vector3.zero or Part.AssemblyLinearVelocity ~= Vector3.zero or Part.AssemblyAngularVelocity ~= Vector3.zero then
+				Part.Velocity = Vector3.zero
+				Part.AssemblyLinearVelocity = Vector3.zero
+				Part.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end)
+end
+
+function Handler:ZeroVelocityCharacter(Character: Model)
+	if Character.Velocity ~= Vector3.zero or Character.AssemblyAngularVelocity ~= Vector3.zero or Character.AssemblyLinearVelocity ~= Vector3.zero then
+		Character.Velocity = Vector3.zero
+		Character.AssemblyAngularVelocity = Vector3.zero
+		Character.AssemblyLinearVelocity = Vector3.zero
+	end
+end
+
+function Handler:Stop(Character: Model)
+    Handler:Pairs(Handler:Humanoid(Character):GetPlayingAnimationTracks(), function(v)
+        v:Stop()
+    end)
+end
+
+function Handler:AnimPlay(ID: string, Speed: number?, Time: number?, Smoothing: number?)
+	if not Handler:Humanoid(OWNER) or not Handler:Humanoid(OWNER).Parent then
+		return
+	end
+
+	Handler:Stop(OWNER)
+    
+	for Index, Tracks in pairs(Handler:Humanoid(OWNER):GetPlayingAnimationTracks()) do
+		if Tracks.Animation and Tracks.Animation.AnimationId:match("rbxassetid://" .. ID) then
+			Tracks:Stop()
+		end
+	end
+
+	local Animation = Instance.new("Animation", workspace)
+	Animation.AnimationId = "rbxassetid://" .. ID
+	Playing = Handler:Humanoid(OWNER):LoadAnimation(Animation)
+	Playing.Priority = Enum.AnimationPriority.Action4
+
+	Playing:Play(tonumber(Smoothing) or nil)
+
+	Playing:AdjustSpeed(tonumber(Speed) or 1)
+
+	if tonumber(Time) then
+		Playing.TimePosition = Time
+	end
+
+	Animation:Destroy()
+end
+
+function Handler:AnimStop(ID: string, Speed: number?)
+	if not Handler:Humanoid(OWNER) or not Handler:Humanoid(OWNER).Parent then
+		return
+	end
+
+	for Index, Track in pairs(Handler:Humanoid(OWNER):GetPlayingAnimationTracks()) do
+		if Track.Animation and Track.Animation.AnimationId:match("rbxassetid://" .. ID) then
+            Track:Stop(Speed or nil)
+		end
+	end
+end
+
+function Handler:IsAnimPlaying(ID: string): boolean
+	if not Handler:Humanoid(OWNER) or not Handler:Humanoid(OWNER).Parent then
+		return
+	end
+	
+	for Index, Track in pairs(Handler:Humanoid(OWNER):GetPlayingAnimationTracks()) do
+		if Track.Animation and Track.Animation.AnimationId:match("rbxassetid://" .. ID) and Track.IsPlaying then
+			return true
+		end
+	end
+	return false
+end
+
+function Handler:Tween(Part: Instance, Duration: number, Properties: { [string]: any }): void
+    TweenService:Create(Part, TweenInfo.new(Duration), Properties):Play()
+end
+
+function Handler:Chat(Message: any)
+    TextChatService.TextChannels.RBXGeneral:SendAsync(Message)
+end
+
+function Handler:HttpGet(url: string | {string}): any
+	if typeof(url) == "table" then
+		local results = {}
+		for index = 1, #url do
+			local success, result = pcall(function()
+				return loadstring(game:HttpGet(url[index]))
+			end)
+			if success and typeof(result) == "function" then
+				results[index] = result()
+			else
+				warn("HttpGet failed at index " .. index, result)
+			end
+		end
+		return table.unpack(results)
+	end
+
+	local success, result = pcall(function()
+		return loadstring(game:HttpGet(url))
+	end)
+
+	if success and typeof(result) == "function" then
+		return result()
+	end
+
+	return nil
+end
+
+function Handler:SendWebhook(url: string, data: table)
+	spawn(function()
+		(http_request or request or (http and http.request) or (syn and syn.request))({
+			Url = url,
+			Method = "POST",
+			Headers = { ["content-type"] = "application/json" },
+			Body = game:GetService("HttpService"):JSONEncode(data),
+		})
+	end)
+end
+
+function Handler:Get_Ping()
+    return math.floor(tonumber(game:GetService("Stats").Network.ServerStatsItem:WaitForChild("Data Ping"):GetValueString():split(" ")[1])) .. " ms"
+end
+
+function Handler:Reload_Gun()
+    if OWNER.Character:FindFirstChildWhichIsA("Tool") then
+        return MainEvent:FireServer("Reload", OWNER.Character:FindFirstChildWhichIsA("Tool"))
+    end
+end
+
+function Handler:Is_Reloading()
+    local reload = OWNER.Character:FindFirstChild("BodyEffects")
+        and OWNER.Character.BodyEffects:FindFirstChild("Reload")
+    return reload and reload.Value or false
+end
+
+return Handler
